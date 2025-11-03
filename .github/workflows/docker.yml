@@ -2,7 +2,14 @@ name: Docker Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: 
+      - main
+      - master
+      - develop
+      - 'feature/**'  # Include feature branches
+      - 'fix/**'      # Include fix branches
+    # Uncomment the line below to build on ALL branches:
+    # branches: [ '**' ]
     tags:
       - 'v*'
   pull_request:
