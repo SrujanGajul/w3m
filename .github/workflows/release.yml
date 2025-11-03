@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.5.4)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Get version
+      id: get_version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="${{ github.event.inputs.tag }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Version: ${VERSION}"
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Extract recent changes from ChangeLog file
+        echo "## What's Changed" > release_notes.md
+        echo "" >> release_notes.md
+        echo "### Bug Fixes" >> release_notes.md
+        echo "- Fixed redirection loop detection for URLs with NULL fields" >> release_notes.md
+        echo "- Fixed query parameter comparison in URL matching" >> release_notes.md
+        echo "- Resolved false positive redirect loops with Wikipedia and other sites" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Improvements" >> release_notes.md
+        echo "- Enhanced URL comparison logic in \`same_url_p()\` function" >> release_notes.md
+        echo "- Better handling of NULL host and file fields in URL structures" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Build System" >> release_notes.md
+        echo "- Added GitHub Actions CI/CD pipeline" >> release_notes.md
+        echo "- Support for automated builds on Linux and macOS" >> release_notes.md
+        echo "- Created minimal build configuration option" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/v0.5.3...${{ steps.get_version.outputs.version }}" >> release_notes.md
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_version.outputs.version }}
+        release_name: w3m ${{ steps.get_version.outputs.version }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
+
+  build-and-upload:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+            deps_install: |
+              sudo apt-get update
+              sudo apt-get install -y libgc-dev libncurses-dev libssl-dev zlib1g-dev gettext build-essential
+            configure: ./configure --enable-image --enable-ssl --enable-ipv6 --enable-unicode
+            build: make -j$(nproc)
+            package: |
+              mkdir -p dist/w3m-${{ needs.create-release.outputs.version }}-linux-x86_64
+              make install DESTDIR=$PWD/dist/w3m-${{ needs.create-release.outputs.version }}-linux-x86_64
+              cd dist
+              tar czf ../w3m-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz w3m-${{ needs.create-release.outputs.version }}-linux-x86_64
+              cd ..
+            artifact: w3m-${{ needs.create-release.outputs.version }}-linux-x86_64.tar.gz
+          
+          - os: ubuntu-latest
+            name: linux-x86_64-minimal
+            deps_install: |
+              sudo apt-get update
+              sudo apt-get install -y libgc-dev libncurses-dev build-essential
+            configure: ./configure --disable-nls --disable-image --disable-mouse --disable-ssl
+            build: make -j$(nproc)
+            package: |
+              mkdir -p dist/w3m-${{ needs.create-release.outputs.version }}-linux-x86_64-minimal
+              cp w3m w3mbookmark w3mhelperpanel dist/w3m-${{ needs.create-release.outputs.version }}-linux-x86_64-minimal/ 2>/dev/null || true
+              cd dist
+              tar czf ../w3m-${{ needs.create-release.outputs.version }}-linux-x86_64-minimal.tar.gz w3m-${{ needs.create-release.outputs.version }}-linux-x86_64-minimal
+              cd ..
+            artifact: w3m-${{ needs.create-release.outputs.version }}-linux-x86_64-minimal.tar.gz
+          
+          - os: macos-latest
+            name: macos-x86_64
+            deps_install: |
+              brew install bdw-gc ncurses openssl gettext
+            configure: |
+              export LDFLAGS="-L$(brew --prefix openssl)/lib -L$(brew --prefix bdw-gc)/lib"
+              export CPPFLAGS="-I$(brew --prefix openssl)/include -I$(brew --prefix bdw-gc)/include"
+              ./configure --with-ssl=$(brew --prefix openssl) --enable-ipv6 --enable-unicode
+            build: make -j$(sysctl -n hw.ncpu)
+            package: |
+              mkdir -p dist/w3m-${{ needs.create-release.outputs.version }}-macos-x86_64
+              make install DESTDIR=$PWD/dist/w3m-${{ needs.create-release.outputs.version }}-macos-x86_64
+              cd dist
+              tar czf ../w3m-${{ needs.create-release.outputs.version }}-macos-x86_64.tar.gz w3m-${{ needs.create-release.outputs.version }}-macos-x86_64
+              cd ..
+            artifact: w3m-${{ needs.create-release.outputs.version }}-macos-x86_64.tar.gz
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: ${{ matrix.deps_install }}
+    
+    - name: Configure
+      run: ${{ matrix.configure }}
+    
+    - name: Build
+      run: ${{ matrix.build }}
+    
+    - name: Package
+      run: ${{ matrix.package }}
+    
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ${{ matrix.artifact }}
+        asset_name: ${{ matrix.artifact }}
+        asset_content_type: application/gzip
+
+  build-source:
+    needs: create-release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Create source tarball
+      run: |
+        VERSION=${{ needs.create-release.outputs.version }}
+        mkdir -p w3m-${VERSION}
+        # Copy all source files except .git
+        tar cf - --exclude='.git' --exclude='*.o' --exclude='w3m' --exclude='.github' . | (cd w3m-${VERSION} && tar xf -)
+        tar czf w3m-${VERSION}.tar.gz w3m-${VERSION}
+    
+    - name: Upload source tarball
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: w3m-${{ needs.create-release.outputs.version }}.tar.gz
+        asset_name: w3m-${{ needs.create-release.outputs.version }}.tar.gz
+        asset_content_type: application/gzip

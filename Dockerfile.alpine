@@ -1,0 +1,55 @@
+# Alpine-based multi-stage build for w3m
+FROM alpine:3.18 AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    build-base \
+    gc-dev \
+    ncurses-dev \
+    openssl-dev \
+    zlib-dev \
+    gettext-dev \
+    linux-headers \
+    autoconf \
+    automake
+
+# Copy source code
+WORKDIR /build
+COPY . .
+
+# Configure and build
+RUN ./configure \
+    --prefix=/usr/local \
+    --enable-ssl \
+    --enable-ipv6 \
+    --enable-unicode \
+    --disable-image \
+    --disable-mouse \
+    --disable-nls \
+    && make -j$(nproc) \
+    && make install DESTDIR=/tmp/w3m-install
+
+# Runtime stage
+FROM alpine:3.18
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    gc \
+    ncurses \
+    openssl \
+    zlib \
+    ca-certificates
+
+# Copy built w3m from builder stage
+COPY --from=builder /tmp/w3m-install /
+
+# Add non-root user
+RUN adduser -D -h /home/w3m w3m
+
+# Switch to non-root user
+USER w3m
+WORKDIR /home/w3m
+
+# Set w3m as entrypoint
+ENTRYPOINT ["/usr/local/bin/w3m"]
+CMD ["-help"]

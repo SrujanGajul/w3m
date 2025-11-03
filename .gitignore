@@ -40,3 +40,32 @@ Makefile
 /scripts/w3mman/w3mman
 /scripts/w3mman/w3mman2html.cgi
 /scripts/w3mman/w3mman*.1
+
+# Build artifacts
+*.tar.gz
+*.tar.bz2
+dist/
+dist-minimal/
+
+# Test files
+test.html
+utf8.html
+entities.html
+test_server.py
+test_same_url
+test_same_url.c
+test_redirect.sh
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debug files
+core
+*.core
+vgcore.*
+*.dSYM/

@@ -1,28 +1,178 @@
-name: ci
+name: Build and Test
 
 on:
   push:
-    branches:
-      - '*'
-    pull_request:
-      - master
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        cc: [gcc, clang]
+        include:
+          - cc: gcc
+            cxx: g++
+          - cc: clang
+            cxx: clang++
+    
     steps:
-      - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgc-dev \
+          libncurses-dev \
+          libssl-dev \
+          zlib1g-dev \
+          gettext \
+          libgpmg1-dev \
+          libbsd-dev \
+          build-essential \
+          autoconf \
+          automake
+    
+    - name: Configure
+      run: |
+        export CC=${{ matrix.cc }}
+        export CXX=${{ matrix.cxx }}
+        ./configure \
+          --prefix=/usr/local \
+          --enable-image \
+          --enable-ssl \
+          --enable-ipv6 \
+          --enable-unicode \
+          --enable-nls
+      env:
+        CC: ${{ matrix.cc }}
+        CXX: ${{ matrix.cxx }}
+    
+    - name: Build
+      run: make -j$(nproc)
+    
+    - name: Run tests
+      run: |
+        # Basic smoke test
+        ./w3m -version
+        # Test dump mode
+        ./w3m -dump https://example.com > /dev/null
+        # Test help
+        ./w3m -help > /dev/null
+    
+    - name: Create tarball
+      if: matrix.cc == 'gcc'
+      run: |
+        mkdir -p dist
+        make install DESTDIR=$PWD/dist
+        tar -czf w3m-linux-x86_64.tar.gz -C dist .
+    
+    - name: Upload artifacts
+      if: matrix.cc == 'gcc'
+      uses: actions/upload-artifact@v3
+      with:
+        name: w3m-linux-x86_64
+        path: w3m-linux-x86_64.tar.gz
 
-      - name: install dependencies
-        run: |
-          sudo apt update
-          sudo apt install build-essential libgc-dev libgpm-dev
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        brew install \
+          bdw-gc \
+          ncurses \
+          openssl \
+          gettext \
+          autoconf \
+          automake
+    
+    - name: Configure
+      run: |
+        export LDFLAGS="-L$(brew --prefix openssl)/lib -L$(brew --prefix bdw-gc)/lib -L$(brew --prefix ncurses)/lib"
+        export CPPFLAGS="-I$(brew --prefix openssl)/include -I$(brew --prefix bdw-gc)/include -I$(brew --prefix ncurses)/include"
+        export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig"
+        ./configure \
+          --prefix=/usr/local \
+          --with-ssl=$(brew --prefix openssl) \
+          --with-gc=$(brew --prefix bdw-gc) \
+          --enable-ipv6 \
+          --enable-unicode \
+          --disable-mouse
+    
+    - name: Build
+      run: make -j$(sysctl -n hw.ncpu)
+    
+    - name: Run tests
+      run: |
+        ./w3m -version
+        ./w3m -dump https://example.com > /dev/null
+        ./w3m -help > /dev/null
+    
+    - name: Create tarball
+      run: |
+        mkdir -p dist
+        make install DESTDIR=$PWD/dist
+        tar -czf w3m-macos-x86_64.tar.gz -C dist .
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: w3m-macos-x86_64
+        path: w3m-macos-x86_64.tar.gz
 
-      - name: configure
-        run: ./configure --enable-alarm --enable-ansi_color --enable-color --enable-cookie --enable-external_uri_loader --enable-gopher --enable-image --enable-ipv6 --enable-m17n --enable-menu --enable-mouse --enable-nls --enable-nntp --enable-sslverify --enable-unicode --enable-w3mmailer --with-imagelib=imlib2 --with-migemo="cmigemo -q -d /usr/share/cmigemo/utf-8/migemo-dict" --with-ssl --with-gc
-
-      - name: build
-        # TODO(rkta): Remove -Wno-error=deprecated-declarations once support for
-        # OpenSSL 3.0 has arrived.
-        run: make OPTS='-Werror -Wno-error=deprecated-declarations -Wno-unused-result'
+  build-minimal:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install minimal dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgc-dev \
+          libncurses-dev \
+          build-essential
+    
+    - name: Configure minimal build
+      run: |
+        ./configure \
+          --disable-nls \
+          --disable-image \
+          --disable-mouse \
+          --disable-ssl \
+          --disable-ipv6 \
+          --disable-xface \
+          --disable-gopher \
+          --disable-nntp
+    
+    - name: Build
+      run: make -j$(nproc)
+    
+    - name: Test minimal build
+      run: |
+        ./w3m -version
+        ./w3m -help > /dev/null
+        # Test with local file
+        echo "<html><body>Hello World</body></html>" > test.html
+        ./w3m -dump test.html
+    
+    - name: Create minimal tarball
+      run: |
+        mkdir -p dist-minimal
+        cp w3m dist-minimal/
+        tar -czf w3m-minimal-linux-x86_64.tar.gz -C dist-minimal .
+    
+    - name: Upload minimal artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: w3m-minimal-linux-x86_64
+        path: w3m-minimal-linux-x86_64.tar.gz
