@@ -1638,10 +1638,33 @@ getAuthCookie(struct http_auth *hauth, char *auth_header,
 static int
 same_url_p(ParsedURL *pu1, ParsedURL *pu2)
 {
-    return (pu1->scheme == pu2->scheme && pu1->port == pu2->port &&
-	    (pu1->host ? pu2->host ? !strcasecmp(pu1->host, pu2->host) : 0 : 1)
-	    && (pu1->file ? pu2->
-		file ? !strcmp(pu1->file, pu2->file) : 0 : 1));
+    /* Check if schemes and ports match */
+    if (pu1->scheme != pu2->scheme || pu1->port != pu2->port)
+        return 0;
+    
+    /* Check host: both NULL is a match, one NULL is not a match */
+    if (pu1->host == NULL && pu2->host == NULL) {
+        /* Both NULL - match */
+    } else if (pu1->host == NULL || pu2->host == NULL) {
+        /* One is NULL, other is not - no match */
+        return 0;
+    } else if (strcasecmp(pu1->host, pu2->host) != 0) {
+        /* Both non-NULL but different - no match */
+        return 0;
+    }
+    
+    /* Check file: both NULL is a match, one NULL is not a match */
+    if (pu1->file == NULL && pu2->file == NULL) {
+        /* Both NULL - match */
+    } else if (pu1->file == NULL || pu2->file == NULL) {
+        /* One is NULL, other is not - no match */
+        return 0;
+    } else if (strcmp(pu1->file, pu2->file) != 0) {
+        /* Both non-NULL but different - no match */
+        return 0;
+    }
+    
+    return 1;
 }
 
 static int
