@@ -1664,6 +1664,17 @@ same_url_p(ParsedURL *pu1, ParsedURL *pu2)
         return 0;
     }
     
+    /* Check query: both NULL is a match, one NULL is not a match */
+    if (pu1->query == NULL && pu2->query == NULL) {
+        /* Both NULL - match */
+    } else if (pu1->query == NULL || pu2->query == NULL) {
+        /* One is NULL, other is not - no match */
+        return 0;
+    } else if (strcmp(pu1->query, pu2->query) != 0) {
+        /* Both non-NULL but different - no match */
+        return 0;
+    }
+    
     return 1;
 }
 
