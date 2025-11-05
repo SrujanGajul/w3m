@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <utime.h>
+#include <unistd.h>
 /* foo */
 
 #include "html.h"
@@ -8817,7 +8818,12 @@ uncompress_stream(URLFile *uf, char **src)
 	    exit(0);
 	}
 	/* child1 */
-	dup2(1, 2);		/* stderr>&stdout */
+	/* Redirect stderr to /dev/null to suppress gunzip error messages */
+	int devnull = open("/dev/null", O_WRONLY);
+	if (devnull >= 0) {
+	    dup2(devnull, 2);
+	    close(devnull);
+	}
 	setup_child(TRUE, -1, -1);
 	if (use_d_arg)
 	    execlp(expand_cmd, expand_name, "-d", NULL);
