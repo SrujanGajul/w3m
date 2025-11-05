@@ -457,11 +457,21 @@ acceptableEncoding(void)
     struct compression_decoder *d;
     TextList *l;
     char *p;
+    char *disable_gzip;
 
     if (encodings != NULL)
 	return encodings->ptr;
+    
+    /* Check if GZIP support should be disabled */
+    disable_gzip = getenv("W3M_NO_GZIP");
+    
     l = newTextList();
     for (d = compression_decoders; d->type != CMP_NOCOMPRESS; d++) {
+	/* Skip gzip/x-gzip if disabled via environment variable */
+	if (disable_gzip && d->type == CMP_COMPRESS && 
+	    (strcmp(d->encoding, "gzip") == 0 || strcmp(d->encoding, "x-gzip") == 0)) {
+	    continue;
+	}
 	if (check_command(d->cmd, d->auxbin_p)) {
 	    pushText(l, d->encoding);
 	}
@@ -2232,7 +2242,13 @@ loadGeneralFile(char *path, ParsedURL *volatile current, char *referer,
 
     if ((f.content_encoding != CMP_NOCOMPRESS) && AutoUncompress
 	&& !(w3m_dump & DUMP_EXTRA)) {
+	/* Try to uncompress, but continue even if it fails */
 	uncompress_stream(&f, &pu.real_file);
+	/* If uncompress failed, reset compression flags */
+	if (f.compression != CMP_NOCOMPRESS) {
+	    f.compression = CMP_NOCOMPRESS;
+	    f.content_encoding = CMP_NOCOMPRESS;
+	}
     }
     else if (f.compression != CMP_NOCOMPRESS) {
 	if (!(w3m_dump & DUMP_SOURCE) &&
